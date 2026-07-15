@@ -1,64 +1,87 @@
 # app/database.py
+"""
+Database Configuration Module
+
+This module sets up the SQLAlchemy database engine, session management, and base class
+for all database models. It follows best practices for database connection management
+in FastAPI applications.
+
+Key Components:
+- Base: Declarative base class for all SQLAlchemy models
+- engine: SQLAlchemy engine for database connections
+- SessionLocal: Session factory for creating database sessions
+- get_db: Dependency function for FastAPI routes to get database sessions
+"""
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
 
-from .config import settings
+# Get database URL from settings
+SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
 
-def get_engine(database_url: str = settings.DATABASE_URL):
-    """
-    Create and return a new SQLAlchemy engine.
+# Create the SQLAlchemy engine
+# The engine is the starting point for any SQLAlchemy application
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
-    Args:
-        database_url (str): The database connection URL.
+# Create a SessionLocal class
+# Each instance of SessionLocal will be a database session
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-    Returns:
-        Engine: A new SQLAlchemy Engine instance.
-    """
-    try:
-        # Create an engine instance with echo=True to log SQL queries (useful for learning)
-        engine = create_engine(database_url, echo=True)
-        return engine
-    except SQLAlchemyError as e:
-        print(f"Error creating engine: {e}")
-        raise
-
-def get_sessionmaker(engine):
-    """
-    Create and return a new sessionmaker.
-
-    Args:
-        engine (Engine): The SQLAlchemy Engine to bind the sessionmaker to.
-
-    Returns:
-        sessionmaker: A configured sessionmaker factory.
-    """
-    return sessionmaker(
-        autocommit=False,  # Disable autocommit to control transactions manually
-        autoflush=False,   # Disable autoflush to control when changes are sent to the DB
-        bind=engine        # Bind the sessionmaker to the provided engine
-    )
-
-# Initialize engine and SessionLocal using the factory functions
-engine = get_engine()
-SessionLocal = get_sessionmaker(engine)
-
-# Base declarative class that our models will inherit from
+# Create a Base class for declarative models
+# All SQLAlchemy models will inherit from this Base class
 Base = declarative_base()
+
 
 def get_db():
     """
-    Dependency function that provides a database session.
-
-    This function can be used with FastAPI's dependency injection system
-    to provide a database session to your route handlers.
-
+    Database session dependency for FastAPI.
+    
+    This function creates a new database session for each request and ensures
+    it's properly closed after the request is complete. It's designed to be
+    used as a FastAPI dependency.
+    
     Yields:
-        Session: A SQLAlchemy Session instance.
+        Session: A SQLAlchemy database session
+        
+    Example:
+        @app.get("/items")
+        def read_items(db: Session = Depends(get_db)):
+            items = db.query(Item).all()
+            return items
     """
-    db = SessionLocal()  # Create a new database session
+    db = SessionLocal()
     try:
-        yield db  # Provide the session to the caller
+        yield db
     finally:
-        db.close()  # Ensure the session is closed after use
+        db.close()
+
+
+def get_engine(database_url: str = SQLALCHEMY_DATABASE_URL):
+    """
+    Factory function to create a new SQLAlchemy engine.
+    
+    This is useful for testing or when you need to create engines
+    with different configurations.
+    
+    Args:
+        database_url: The database connection URL
+        
+    Returns:
+        Engine: A SQLAlchemy engine instance
+    """
+    return create_engine(database_url)
+
+
+def get_sessionmaker(engine):
+    """
+    Factory function to create a new sessionmaker bound to the given engine.
+    
+    Args:
+        engine: A SQLAlchemy engine instance
+        
+    Returns:
+        sessionmaker: A configured session factory
+    """
+    return sessionmaker(autocommit=False, autoflush=False, bind=engine)
