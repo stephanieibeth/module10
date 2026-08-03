@@ -1,73 +1,131 @@
 # tests/e2e/test_e2e.py
 
-import pytest  # Import the pytest framework for writing and running tests
+import os
+from uuid import uuid4
 
-# The following decorators and functions define E2E tests for the FastAPI calculator application.
+import pytest
+from playwright.sync_api import Page, expect
 
-@pytest.mark.e2e
-def test_hello_world(page, fastapi_server):
-    """
-    Test that the homepage displays "Hello World".
 
-    This test verifies that when a user navigates to the homepage of the application,
-    the main header (`<h1>`) correctly displays the text "Hello World". This ensures
-    that the server is running and serving the correct template.
-    """
-    # Navigate the browser to the homepage URL of the FastAPI application.
-    page.goto('http://localhost:8000')
-    
-    # Use an assertion to check that the text within the first <h1> tag is exactly "Hello World".
-    # If the text does not match, the test will fail.
-    assert page.inner_text('h1') == 'Hello World'
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
-@pytest.mark.e2e
-def test_calculator_add(page, fastapi_server):
-    """
-    Test the addition functionality of the calculator.
 
-    This test simulates a user performing an addition operation using the calculator
-    on the frontend. It fills in two numbers, clicks the "Add" button, and verifies
-    that the result displayed is correct.
-    """
-    # Navigate the browser to the homepage URL of the FastAPI application.
-    page.goto('http://localhost:8000')
-    
-    # Fill in the first number input field (with id 'a') with the value '10'.
-    page.fill('#a', '10')
-    
-    # Fill in the second number input field (with id 'b') with the value '5'.
-    page.fill('#b', '5')
-    
-    # Click the button that has the exact text "Add". This triggers the addition operation.
-    page.click('button:text("Add")')
-    
-    # Use an assertion to check that the text within the result div (with id 'result') is exactly "Result: 15".
-    # This verifies that the addition operation was performed correctly and the result is displayed as expected.
-    assert page.inner_text('#result') == 'Result: 15'
+def unique_user() -> dict[str, str]:
+    """Create unique registration data so repeated test runs do not conflict."""
+    unique_id = uuid4().hex[:10]
+
+    return {
+        "first_name": "Playwright",
+        "last_name": "Tester",
+        "username": f"user_{unique_id}",
+        "email": f"user_{unique_id}@example.com",
+        "password": "Password123",
+    }
+
+
+def register_user_through_ui(page: Page, user: dict[str, str]) -> None:
+    """Register a user through the browser registration form."""
+    page.goto(f"{BASE_URL}/register")
+
+    page.fill("#first-name", user["first_name"])
+    page.fill("#last-name", user["last_name"])
+    page.fill("#username", user["username"])
+    page.fill("#email", user["email"])
+    page.fill("#password", user["password"])
+    page.fill("#confirm-password", user["password"])
+
+    page.click("#register-button")
+
+    expect(page.locator("#message")).to_contain_text(
+        "Registration successful"
+    )
+
 
 @pytest.mark.e2e
-def test_calculator_divide_by_zero(page, fastapi_server):
-    """
-    Test the divide by zero functionality of the calculator.
+def test_successful_registration(page: Page):
+    """A user can register with valid information."""
+    user = unique_user()
 
-    This test simulates a user attempting to divide a number by zero using the calculator.
-    It fills in the numbers, clicks the "Divide" button, and verifies that the appropriate
-    error message is displayed. This ensures that the application correctly handles invalid
-    operations and provides meaningful feedback to the user.
-    """
-    # Navigate the browser to the homepage URL of the FastAPI application.
-    page.goto('http://localhost:8000')
-    
-    # Fill in the first number input field (with id 'a') with the value '10'.
-    page.fill('#a', '10')
-    
-    # Fill in the second number input field (with id 'b') with the value '0', attempting to divide by zero.
-    page.fill('#b', '0')
-    
-    # Click the button that has the exact text "Divide". This triggers the division operation.
-    page.click('button:text("Divide")')
-    
-    # Use an assertion to check that the text within the result div (with id 'result') is exactly
-    # "Error: Cannot divide by zero!". This verifies that the application handles division by zero
-    # gracefully and displays the correct error message to the user.
-    assert page.inner_text('#result') == 'Error: Cannot divide by zero!'
+    register_user_through_ui(page, user)
+
+    expect(page.locator("#message")).to_have_class(
+        "message success"
+    )
+
+
+@pytest.mark.e2e
+def test_registration_rejects_short_password(page: Page):
+    """Client-side validation rejects a password shorter than six characters."""
+    user = unique_user()
+
+    page.goto(f"{BASE_URL}/register")
+
+    page.fill("#first-name", user["first_name"])
+    page.fill("#last-name", user["last_name"])
+    page.fill("#username", user["username"])
+    page.fill("#email", user["email"])
+    page.fill("#password", "Ab1")
+    page.fill("#confirm-password", "Ab1")
+
+    page.click("#register-button")
+
+    expect(page.locator("#message")).to_contain_text(
+        "Password must be at least 6 characters long"
+    )
+
+    expect(page.locator("#message")).to_have_class(
+        "message error"
+    )
+
+
+@pytest.mark.e2e
+def test_successful_login_stores_jwt(page: Page):
+    """A registered user can log in and the JWT is stored locally."""
+    user = unique_user()
+
+    register_user_through_ui(page, user)
+
+    page.goto(f"{BASE_URL}/login")
+
+    page.fill("#username", user["username"])
+    page.fill("#password", user["password"])
+    page.click("#login-button")
+
+    expect(page.locator("#message")).to_contain_text(
+        "Login successful"
+    )
+
+    access_token = page.evaluate(
+        "() => localStorage.getItem('access_token')"
+    )
+
+    assert access_token is not None
+    assert len(access_token) > 0
+
+
+@pytest.mark.e2e
+def test_login_rejects_wrong_password(page: Page):
+    """The UI displays an error when a user enters the wrong password."""
+    user = unique_user()
+
+    register_user_through_ui(page, user)
+
+    page.goto(f"{BASE_URL}/login")
+
+    page.fill("#username", user["username"])
+    page.fill("#password", "WrongPassword123")
+    page.click("#login-button")
+
+    expect(page.locator("#message")).to_contain_text(
+        "Invalid username or password"
+    )
+
+    expect(page.locator("#message")).to_have_class(
+        "message error"
+    )
+
+    access_token = page.evaluate(
+        "() => localStorage.getItem('access_token')"
+    )
+
+    assert access_token is None

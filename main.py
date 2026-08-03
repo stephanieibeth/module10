@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,9 @@ app = FastAPI(
 
 # Setup templates directory
 templates = Jinja2Templates(directory="templates")
+
+# Setup static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +441,21 @@ async def read_root(request: Request):
 
     return templates.TemplateResponse(
         "index.html",
+        {"request": request},
+    )
+
+@app.get("/register", tags=["Authentication"])
+async def register_page(request: Request):
+    return templates.TemplateResponse(
+        "register.html",
+        {"request": request},
+    )
+
+
+@app.get("/login", tags=["Authentication"])
+async def login_page(request: Request):
+    return templates.TemplateResponse(
+        "login.html",
         {"request": request},
     )
 
